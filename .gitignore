@@ -1,0 +1,15 @@
+# Archivos de cache de Python
+__pycache__/
+*.py[cod]
+
+# Entornos virtuales
+venv/
+env/
+
+# Archivos de datos y descargas
+data_plan_escacez/
+*.csv
+*.crdownload
+
+# Credenciales (si alguna vez usas un archivo json local)
+*.json

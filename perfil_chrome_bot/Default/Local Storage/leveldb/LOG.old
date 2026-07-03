@@ -1,0 +1,8 @@
+2026/07/03-14:55:17.256 95c Creating DB C:\Users\nicolas.paredes\Desktop\nico\vscode\bot_fillrate_pulse_copy\perfil_chrome_bot\Default\Local Storage\leveldb since it was missing.
+2026/07/03-14:55:17.298 95c Reusing MANIFEST C:\Users\nicolas.paredes\Desktop\nico\vscode\bot_fillrate_pulse_copy\perfil_chrome_bot\Default\Local Storage\leveldb/MANIFEST-000001
+2026/07/03-14:56:17.349 6830 Level-0 table #5: started
+2026/07/03-14:56:17.359 6830 Level-0 table #5: 71582 bytes OK
+2026/07/03-14:56:17.363 6830 Delete type=0 #3
+2026/07/03-15:02:52.361 95c Level-0 table #7: started
+2026/07/03-15:02:52.376 95c Level-0 table #7: 232167 bytes OK
+2026/07/03-15:02:52.379 95c Delete type=0 #4

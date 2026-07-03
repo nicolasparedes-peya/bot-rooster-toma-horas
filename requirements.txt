@@ -1,0 +1,7 @@
+pandas>=2.0.0
+selenium>=4.10.0
+google-cloud-bigquery>=3.10.0
+google-auth>=2.20.0
+tkcalendar>=1.6.1
+Pillow>=9.5.0
+pandas-gbq>=0.26.1
