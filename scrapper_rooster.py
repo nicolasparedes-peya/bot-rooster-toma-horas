@@ -61,6 +61,31 @@ class RoosterScraper:
             """, elemento)
 
     # =================================================================
+    # FUNCION PARA ACTUALIZAR DATA (CLIC FUERA DEL CALENDARIO)
+    # =================================================================
+    def _clic_fuera_calendario(self):
+        try:
+            body = self.driver.find_element(By.TAG_NAME, "body")
+            ActionChains(self.driver).move_to_element_with_offset(body, 5, 5).click().perform()
+        except: pass
+            
+        try: self.driver.execute_script("document.body.click();")
+        except: pass
+            
+        try:
+            self.driver.execute_script("""
+                var el = document.elementFromPoint(10, 10) || document.body;
+                var evClick = new MouseEvent('click', {bubbles: true, cancelable: true, view: window});
+                el.dispatchEvent(evClick);
+            """)
+        except: pass
+            
+        try: ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+        except: pass
+            
+        time.sleep(1.5)
+
+    # =================================================================
     # FUNCIONES DE NAVEGACION AGRESIVA
     # =================================================================
     def _navegar_mes(self, anio_objetivo, mes_objetivo):
@@ -145,53 +170,24 @@ class RoosterScraper:
         time.sleep(0.5)
 
     # =================================================================
-    # FUNCIONES DE ESPERA Y RENOMBRADO DINAMICO
+    # FUNCIONES DE ESPERA Y RENOMBRADO DINAMICO (MÉTODO SNAPSHOT)
     # =================================================================
-    def _esperar_y_renombrar_review(self, ciudad, cantidad_anterior, fecha):
-        fecha_str = fecha.replace('.', '_')
-        nuevo_nombre = f"review-cl-{ciudad}-{fecha_str}.csv"
-        ruta_nueva = os.path.join(self.download_dir, nuevo_nombre)
-
-        # Usamos tiempo cronometrado real (90 segundos completos)
-        tiempo_limite = time.time() + 90
-        
-        while time.time() < tiempo_limite:
-            archivos_csv = glob.glob(os.path.join(self.download_dir, "*.csv"))
-            
-            archivos_candidatos = [f for f in archivos_csv if os.path.basename(f).startswith("review-") and "_" not in os.path.basename(f)]
-            descargas_pendientes = glob.glob(os.path.join(self.download_dir, "*.crdownload"))
-            
-            if len(archivos_candidatos) > cantidad_anterior and not descargas_pendientes:
-                ultimo_archivo = max(archivos_candidatos, key=os.path.getctime)
-                try:
-                    if os.path.exists(ruta_nueva):
-                        os.remove(ruta_nueva)
-                    os.rename(ultimo_archivo, ruta_nueva)
-                    print(f"  [SISTEMA] Archivo etiquetado como: {nuevo_nombre}")
-                    return True
-                except PermissionError:
-                    pass
-                except Exception as e:
-                    print(f"  [SISTEMA] Error al etiquetar archivo: {e}")
-                    return False
-                    
-            time.sleep(0.5)
-            
-        return False
-
-    def _esperar_y_renombrar_shift_trimming(self, ciudad, cantidad_anterior, fecha):
+    def _esperar_y_renombrar(self, prefijo_nuevo, ciudad, archivos_previos, fecha):
         tiempo_espera = 0
         fecha_str = fecha.replace('.', '_')
-        nuevo_nombre = f"shifts-trimming-cl-{ciudad}-{fecha_str}.csv"
+        nuevo_nombre = f"{prefijo_nuevo}-cl-{ciudad}-{fecha_str}.csv"
         ruta_nueva = os.path.join(self.download_dir, nuevo_nombre)
 
-        while tiempo_espera < 15:
-            archivos_csv = glob.glob(os.path.join(self.download_dir, "*.csv"))
-            archivos_candidatos = [f for f in archivos_csv if "-cl-" not in os.path.basename(f)]
-            descargas_pendientes = glob.glob(os.path.join(self.download_dir, "*.crdownload"))
+        while tiempo_espera < 60:
+            archivos_actuales = set(glob.glob(os.path.join(self.download_dir, "*.csv")))
+            nuevos_archivos = archivos_actuales - archivos_previos
             
-            if len(archivos_candidatos) > cantidad_anterior and not descargas_pendientes:
-                ultimo_archivo = max(archivos_candidatos, key=os.path.getctime)
+            # Revisar descargas incompletas (.crdownload de Chrome o .tmp generico)
+            descargas_pendientes = glob.glob(os.path.join(self.download_dir, "*.crdownload")) + \
+                                   glob.glob(os.path.join(self.download_dir, "*.tmp"))
+            
+            if nuevos_archivos and not descargas_pendientes:
+                ultimo_archivo = list(nuevos_archivos)[0]
                 try:
                     if os.path.exists(ruta_nueva):
                         os.remove(ruta_nueva)
@@ -199,7 +195,7 @@ class RoosterScraper:
                     print(f"  [SISTEMA] Archivo etiquetado como: {nuevo_nombre}")
                     return True
                 except PermissionError:
-                    pass
+                    pass  # El archivo sigue bloqueado por Chrome, espera un segundo mas
                 except Exception as e:
                     print(f"  [SISTEMA] Error al etiquetar archivo: {e}")
                     return False
@@ -220,13 +216,17 @@ class RoosterScraper:
                 caja_dropdown = self.wait.until(
                     EC.presence_of_element_located((By.XPATH, "//div[@data-testid='HeaderNavigationSelectorRoot']"))
                 )
-                self._forzar_clic(caja_dropdown)
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", caja_dropdown)
+                time.sleep(0.5)
+                try: caja_dropdown.click()
+                except: self.driver.execute_script("arguments[0].click();", caja_dropdown)
                 time.sleep(1)
                 
                 opcion_ciudad = WebDriverWait(self.driver, 4).until(
                     EC.presence_of_element_located((By.XPATH, f"//*[text()='{ciudad_destino}']"))
                 )
-                self._forzar_clic(opcion_ciudad)
+                try: opcion_ciudad.click()
+                except: self.driver.execute_script("arguments[0].click();", opcion_ciudad)
                 time.sleep(1)
                 return
             except Exception as e:
@@ -240,10 +240,7 @@ class RoosterScraper:
         dia_f, mes_f, anio_f = (int(x) for x in fecha_fin.split("."))
 
         self.driver.execute_script("window.scrollTo(0, 0);")
-        try:
-            ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
-        except: pass
-        time.sleep(1)
+        self._clic_fuera_calendario()
 
         calendario_abierto = False
         for intento in range(3):
@@ -276,13 +273,8 @@ class RoosterScraper:
         if (anio_f, mes_f) != (anio_i, mes_i):
             self._navegar_mes(anio_f, mes_f)
         self._seleccionar_dia(dia_f, mes_f, anio_f)
-        time.sleep(1)
-
-        try:
-            self.driver.execute_script("document.body.click();")
-            ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
-        except: pass
-        time.sleep(0.5)
+        
+        self._clic_fuera_calendario()
 
     def descargar_csv(self):
         tiempo_actual = time.time()
@@ -294,10 +286,6 @@ class RoosterScraper:
             time.sleep(tiempo_espera)
             
         time.sleep(3)
-        
-        # NUEVO: Calculamos la cantidad exacta justo ANTES de hacer clic, después del cooldown
-        archivos_csv = glob.glob(os.path.join(self.download_dir, "*.csv"))
-        cantidad = len([f for f in archivos_csv if os.path.basename(f).startswith("review-") and "_" not in os.path.basename(f)])
         
         for intento in range(3):
             try:
@@ -311,7 +299,7 @@ class RoosterScraper:
                 print("  [ROOSTER] Clic de descarga ejecutado.")
                 
                 self.ultima_descarga_review = time.time()
-                return cantidad # Retornamos el conteo correcto
+                return 
             except Exception as e:
                 if "stale" in str(e).lower() or "not attached" in str(e).lower():
                     time.sleep(2)
@@ -326,11 +314,7 @@ class RoosterScraper:
         
         try:
             self.driver.get("https://cl.us.logisticsbackoffice.com/dashboard/rooster/review")
-            time.sleep(3)
-            # Solo seteamos la resolución, NO maximizamos
-            self.driver.set_window_size(1920, 1080)
-            self.driver.refresh()
-            time.sleep(5)
+            time.sleep(4)
             self.seleccionar_ciudad_review(ciudad) 
         except Exception as e:
             print(f"[ROOSTER] Error inicial al cargar Review para {ciudad}: {e}")
@@ -342,14 +326,14 @@ class RoosterScraper:
                 self.configurar_fechas_review(fecha, fecha)
                 
                 for intento in range(3):
-                    try: self.driver.execute_script("document.body.click();")
-                    except: pass
-                    time.sleep(1)
+                    self._clic_fuera_calendario()
                     
                     try:
-                        # Obtenemos la cantidad directamente de la funcion de descarga
-                        cantidad_anterior = self.descargar_csv()
-                        exito = self._esperar_y_renombrar_review(ciudad, cantidad_anterior, fecha)
+                        # TOMA LA FOTO DE LA CARPETA ANTES DE DESCARGAR
+                        archivos_previos = set(glob.glob(os.path.join(self.download_dir, "*.csv")))
+                        
+                        self.descargar_csv()
+                        exito = self._esperar_y_renombrar("review", ciudad, archivos_previos, fecha)
                         
                         if exito:
                             print(f"  [ROOSTER] Descarga confirmada para {fecha}.")
@@ -379,11 +363,7 @@ class RoosterScraper:
 
         try:
             self.driver.get("https://cl.us.logisticsbackoffice.com/dashboard/rooster/scheduler")
-            time.sleep(3)
-            # Solo seteamos la resolución, NO maximizamos
-            self.driver.set_window_size(1920, 1080)
-            self.driver.refresh()
-            time.sleep(5)
+            time.sleep(4)
             self.seleccionar_ciudad_review(ciudad)
         except Exception as e:
             print(f"[ROOSTER] Error inicial al cargar Scheduler para {ciudad}: {e}")
@@ -409,9 +389,7 @@ class RoosterScraper:
                 self._forzar_clic(opcion_all)
                 time.sleep(1)
                 
-                try:
-                    self.driver.execute_script("document.body.click();")
-                except: pass
+                self._clic_fuera_calendario()
 
                 dia, mes, anio = (int(x) for x in fecha.split("."))
                 
@@ -421,11 +399,7 @@ class RoosterScraper:
                 
                 self._navegar_mes(anio, mes)
                 self._seleccionar_dia(dia, mes, anio)
-                time.sleep(0.5)
-
-                try: self.driver.execute_script("document.body.click();")
-                except: pass
-                time.sleep(1)
+                self._clic_fuera_calendario()
 
                 input_end = self.wait.until(EC.presence_of_element_located((By.XPATH, "//label[contains(., 'End date')]/ancestor::div[contains(@class, 'FormField-Root')]//input")))
                 self._forzar_clic(input_end)
@@ -433,7 +407,7 @@ class RoosterScraper:
                 
                 self._navegar_mes(anio, mes)
                 self._seleccionar_dia(dia, mes, anio)
-                time.sleep(0.5)
+                self._clic_fuera_calendario()
 
                 radio_unassigned = self.wait.until(EC.presence_of_element_located((By.XPATH, "//label[.//div[contains(text(), 'Unassigned shifts')]]")))
                 self._forzar_clic(radio_unassigned)
@@ -449,12 +423,14 @@ class RoosterScraper:
                         btn_download = WebDriverWait(self.driver, 2).until(
                             EC.presence_of_element_located((By.XPATH, "//button[contains(., 'Download CSV list of selected shifts')]"))
                         )
+                        
+                        # TOMA LA FOTO DE LA CARPETA ANTES DE DESCARGAR
+                        archivos_previos = set(glob.glob(os.path.join(self.download_dir, "*.csv")))
+                        
                         self.driver.execute_script("arguments[0].click();", btn_download)
                         print("  [ROOSTER] Descarga iniciada.")
                         
-                        cantidad_anterior = len([f for f in glob.glob(os.path.join(self.download_dir, "*.csv")) if "-cl-" not in os.path.basename(f)])
-                        
-                        exito = self._esperar_y_renombrar_shift_trimming(ciudad, cantidad_anterior, fecha)
+                        exito = self._esperar_y_renombrar("shifts-trimming", ciudad, archivos_previos, fecha)
                         if exito:
                             print(f"  [ROOSTER] Descarga confirmada para {fecha}.")
                             descarga_exitosa = True
