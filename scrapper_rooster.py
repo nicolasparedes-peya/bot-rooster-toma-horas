@@ -170,16 +170,27 @@ class RoosterScraper:
         time.sleep(0.5)
 
     # =================================================================
-    # FUNCIONES DE ESPERA Y RENOMBRADO DINAMICO (MÉTODO SNAPSHOT)
+    # FUNCIONES DE ESPERA Y RENOMBRADO DINAMICO (MÉTODO SNAPSHOT V2)
     # =================================================================
+    def _tomar_fotografia_archivos(self):
+        """Toma una foto del estado actual guardando (Ruta, Hora_de_modificacion)"""
+        foto = set()
+        for f in glob.glob(os.path.join(self.download_dir, "*.csv")):
+            try:
+                foto.add((f, os.path.getmtime(f)))
+            except:
+                pass
+        return foto
+
     def _esperar_y_renombrar(self, prefijo_nuevo, ciudad, archivos_previos, fecha):
-        tiempo_espera = 0
         fecha_str = fecha.replace('.', '_')
         nuevo_nombre = f"{prefijo_nuevo}-cl-{ciudad}-{fecha_str}.csv"
         ruta_nueva = os.path.join(self.download_dir, nuevo_nombre)
 
-        while tiempo_espera < 60:
-            archivos_actuales = set(glob.glob(os.path.join(self.download_dir, "*.csv")))
+        tiempo_limite = time.time() + 90 
+
+        while time.time() < tiempo_limite:
+            archivos_actuales = self._tomar_fotografia_archivos()
             nuevos_archivos = archivos_actuales - archivos_previos
             
             # Revisar descargas incompletas (.crdownload de Chrome o .tmp generico)
@@ -187,7 +198,10 @@ class RoosterScraper:
                                    glob.glob(os.path.join(self.download_dir, "*.tmp"))
             
             if nuevos_archivos and not descargas_pendientes:
-                ultimo_archivo = list(nuevos_archivos)[0]
+                # Ordenamos para asegurar tomar el archivo modificado mas recientemente
+                archivos_ordenados = sorted(list(nuevos_archivos), key=lambda x: x[1], reverse=True)
+                ultimo_archivo = archivos_ordenados[0][0] # Extraemos solo la ruta
+                
                 try:
                     if os.path.exists(ruta_nueva):
                         os.remove(ruta_nueva)
@@ -195,13 +209,12 @@ class RoosterScraper:
                     print(f"  [SISTEMA] Archivo etiquetado como: {nuevo_nombre}")
                     return True
                 except PermissionError:
-                    pass  # El archivo sigue bloqueado por Chrome, espera un segundo mas
+                    pass  # El archivo sigue bloqueado momentáneamente por el SO
                 except Exception as e:
                     print(f"  [SISTEMA] Error al etiquetar archivo: {e}")
                     return False
                     
             time.sleep(0.5)
-            tiempo_espera += 1
             
         return False
 
@@ -329,8 +342,8 @@ class RoosterScraper:
                     self._clic_fuera_calendario()
                     
                     try:
-                        # TOMA LA FOTO DE LA CARPETA ANTES DE DESCARGAR
-                        archivos_previos = set(glob.glob(os.path.join(self.download_dir, "*.csv")))
+                        # TOMA LA FOTO USANDO RUTAS + TIMESTAMPS
+                        archivos_previos = self._tomar_fotografia_archivos()
                         
                         self.descargar_csv()
                         exito = self._esperar_y_renombrar("review", ciudad, archivos_previos, fecha)
@@ -424,8 +437,8 @@ class RoosterScraper:
                             EC.presence_of_element_located((By.XPATH, "//button[contains(., 'Download CSV list of selected shifts')]"))
                         )
                         
-                        # TOMA LA FOTO DE LA CARPETA ANTES DE DESCARGAR
-                        archivos_previos = set(glob.glob(os.path.join(self.download_dir, "*.csv")))
+                        # TOMA LA FOTO USANDO RUTAS + TIMESTAMPS
+                        archivos_previos = self._tomar_fotografia_archivos()
                         
                         self.driver.execute_script("arguments[0].click();", btn_download)
                         print("  [ROOSTER] Descarga iniciada.")

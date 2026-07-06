@@ -1,3 +1,6 @@
-2026/07/05-21:06:21.862 31d8 Reusing MANIFEST C:\Users\nicolas.paredes\Desktop\nico\vscode\bot_fillrate_pulse_copy\perfil_chrome_bot\Default\Local Storage\leveldb/MANIFEST-000001
-2026/07/05-21:06:21.870 31d8 Recovering log #6
-2026/07/05-21:06:21.925 31d8 Reusing old log C:\Users\nicolas.paredes\Desktop\nico\vscode\bot_fillrate_pulse_copy\perfil_chrome_bot\Default\Local Storage\leveldb/000006.log 
+2026/07/06-15:38:23.429 66fc Reusing MANIFEST C:\Users\nicolas.paredes\Desktop\nico\vscode\bot_rooster_toma_horas\perfil_chrome_bot\Default\Local Storage\leveldb/MANIFEST-000001
+2026/07/06-15:38:23.436 66fc Recovering log #9
+2026/07/06-15:38:23.438 66fc Reusing old log C:\Users\nicolas.paredes\Desktop\nico\vscode\bot_rooster_toma_horas\perfil_chrome_bot\Default\Local Storage\leveldb/000009.log 
+2026/07/06-15:39:23.452 4b0c Level-0 table #13: started
+2026/07/06-15:39:23.462 4b0c Level-0 table #13: 15046 bytes OK
+2026/07/06-15:39:23.463 4b0c Delete type=0 #9
