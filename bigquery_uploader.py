@@ -61,11 +61,10 @@ def procesar_y_subir_lote(lista_archivos, numero_ciclo, fecha_medicion_fija, hor
             df['ciudad_procesada'] = ciu
             df_slots_list.append(df)
 
-    registros_review = []
-    registros_slots = []
+    registros_master = []
 
     # =================================================================
-    # PROCESAMIENTO LOGICA REVIEW
+    # PROCESAMIENTO: REVIEW (TURNOS TOMADOS)
     # =================================================================
     if df_review_list:
         df_rev_consolidado = pd.concat(df_review_list, ignore_index=True)
@@ -85,28 +84,26 @@ def procesar_y_subir_lote(lista_archivos, numero_ciclo, fecha_medicion_fija, hor
                 ciudad = row['ciudad_procesada']
                 
                 curr = start
-                
                 while curr < end:
                     next_hour = curr.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
                     overlap_end = min(next_hour, end)
                     duration_hours = (overlap_end - curr).total_seconds() / 3600.0
 
-                    # Asignamos la fecha y hora exactas en la que ocurre esta fracción del turno
-                    fecha_real = curr.date()
-                    hora_real = int(curr.hour)
-
-                    registros_review.append({
+                    # Inyectamos en lista maestra
+                    registros_master.append({
                         'ciudad': ciudad,
                         'starting_point': sp_actual,
-                        'fecha': fecha_real,
-                        'hora': hora_real,
+                        'fecha': curr.date(),
+                        'hora': int(curr.hour),
                         'horas_trabajo': duration_hours,
+                        'horas_no_tomadas': 0.0,
+                        'slots_totales': 0.0,
                         'ciclo': int(numero_ciclo)
                     })
                     curr = overlap_end
 
     # =================================================================
-    # PROCESAMIENTO LOGICA SHIFTS-TRIMMING
+    # PROCESAMIENTO: SHIFTS-TRIMMING (DISPONIBILIDAD Y NO TOMADOS)
     # =================================================================
     if df_slots_list:
         df_slots_consolidado = pd.concat(df_slots_list, ignore_index=True)
@@ -115,6 +112,9 @@ def procesar_y_subir_lote(lista_archivos, numero_ciclo, fecha_medicion_fija, hor
         col_sd, col_st = 'start date', 'start time (local)'
         col_ed, col_et = 'end date', 'end time (local)'
         col_sp, col_slots = 'starting point name', 'slots'
+        col_employee = 'employee id'
+
+        has_employee = col_employee in df_slots_consolidado.columns
 
         if all(col in df_slots_consolidado.columns for col in [col_sd, col_st, col_ed, col_et, col_sp, col_slots]):
             df_slots_consolidado['start_dt'] = pd.to_datetime(df_slots_consolidado[col_sd] + ' ' + df_slots_consolidado[col_st], format='mixed')
@@ -126,93 +126,77 @@ def procesar_y_subir_lote(lista_archivos, numero_ciclo, fecha_medicion_fija, hor
                 slots_disponibles = float(row[col_slots])
                 ciudad = row['ciudad_procesada']
                 
-                curr = start
+                # Identificamos si es un turno NO TOMADO (vacío)
+                is_untaken = False
+                if has_employee:
+                    is_untaken = pd.isna(row[col_employee])
                 
+                curr = start
                 while curr < end:
                     next_hour = curr.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
                     overlap_end = min(next_hour, end)
                     duration_hours = (overlap_end - curr).total_seconds() / 3600.0
 
                     slots_ponderados = duration_hours * slots_disponibles
-                    
-                    # Asignamos la fecha y hora exactas en la que ocurre esta fracción de slots
-                    fecha_real = curr.date()
-                    hora_real = int(curr.hour)
+                    horas_no_tomadas = slots_ponderados if is_untaken else 0.0
 
-                    registros_slots.append({
+                    # Inyectamos en lista maestra
+                    registros_master.append({
                         'ciudad': ciudad,
                         'starting_point': sp_actual,
-                        'fecha': fecha_real,
-                        'hora': hora_real,
+                        'fecha': curr.date(),
+                        'hora': int(curr.hour),
+                        'horas_trabajo': 0.0,
+                        'horas_no_tomadas': horas_no_tomadas,
                         'slots_totales': slots_ponderados,
                         'ciclo': int(numero_ciclo)
                     })
                     curr = overlap_end
 
     # =================================================================
-    # SUBIDA AGRUPADA A BIGQUERY - TABLA REVIEW
+    # AGRUPACIÓN GLOBAL Y CRUCE DE ZONAS
     # =================================================================
-    if registros_review:
-        table_id_rev = "peya-chile.user_nicolas_paredes.velocidad_toma_horas"
-        df_final_rev = pd.DataFrame(registros_review)
-        df_final_rev = df_final_rev.groupby(
+    if registros_master:
+        print("[BIGQUERY] Agrupando datos cruzados y calculando metricas maestras...")
+        df_agrupado = pd.DataFrame(registros_master)
+        
+        df_agrupado = df_agrupado.groupby(
             ['ciudad', 'starting_point', 'fecha', 'hora', 'ciclo'], 
             as_index=False
-        )['horas_trabajo'].sum()
+        )[['horas_trabajo', 'horas_no_tomadas', 'slots_totales']].sum()
 
-        df_final_rev['starting_point'] = df_final_rev['starting_point'].astype(str).str.strip()
-        df_final_rev = df_final_rev.merge(df_zonas, on='starting_point', how='left')
+        df_agrupado['starting_point'] = df_agrupado['starting_point'].astype(str).str.strip()
+        df_agrupado = df_agrupado.merge(df_zonas, on='starting_point', how='left')
 
-        df_final_rev['fecha'] = pd.to_datetime(df_final_rev['fecha']).dt.strftime('%Y-%m-%d')
-        df_final_rev['hora'] = df_final_rev['hora'].astype(int)
-        df_final_rev['ciclo'] = df_final_rev['ciclo'].astype(int)
-        df_final_rev['fecha_medicion'] = fecha_medicion_fija
-        df_final_rev['hora_medicion'] = hora_medicion_fija
+        df_agrupado['fecha'] = pd.to_datetime(df_agrupado['fecha']).dt.strftime('%Y-%m-%d')
+        df_agrupado['hora'] = df_agrupado['hora'].astype(int)
+        df_agrupado['ciclo'] = df_agrupado['ciclo'].astype(int)
+        df_agrupado['fecha_medicion'] = fecha_medicion_fija
+        df_agrupado['hora_medicion'] = hora_medicion_fija
 
-        columnas_finales = ['ciudad', 'zone_name', 'starting_point', 'fecha', 'hora', 'ciclo', 'horas_trabajo', 'fecha_medicion', 'hora_medicion']
-        df_final_rev = df_final_rev[[col for col in columnas_finales if col in df_final_rev.columns]]
+        # -------------------------------------------------------------
+        # CÁLCULO FINAL: horas_totales_live (Tomados de Review + No tomados de Shifts)
+        # -------------------------------------------------------------
+        df_agrupado['horas_totales_live'] = df_agrupado['horas_trabajo'] + df_agrupado['horas_no_tomadas']
 
-        try:
-            job_config = bigquery.LoadJobConfig(
-                write_disposition="WRITE_APPEND",
-                schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
-            )
-            job = client.load_table_from_dataframe(df_final_rev, table_id_rev, job_config=job_config)
-            job.result()
-            print(f"[BIGQUERY] Exito: Se subieron {len(df_final_rev)} filas agrupadas a 'velocidad_toma_horas'.")
-        except Exception as e:
-            print(f"[BIGQUERY] Error subiendo Review: {e}")
+        # =================================================================
+        # SUBIDA A BIGQUERY - TABLA 1: velocidad_toma_horas
+        # =================================================================
+        # Filtramos para no subir filas que son puro cero en ambas métricas
+        df_rev_upload = df_agrupado[(df_agrupado['horas_trabajo'] > 0) | (df_agrupado['horas_totales_live'] > 0)].copy()
+        
+        if not df_rev_upload.empty:
+            table_id_rev = "peya-chile.user_nicolas_paredes.velocidad_toma_horas"
+            columnas_rev = ['ciudad', 'zone_name', 'starting_point', 'fecha', 'hora', 'ciclo', 'horas_trabajo', 'horas_totales_live', 'fecha_medicion', 'hora_medicion']
+            df_rev_upload = df_rev_upload[[col for col in columnas_rev if col in df_rev_upload.columns]]
 
-    # =================================================================
-    # SUBIDA AGRUPADA A BIGQUERY - TABLA SHIFTS TRIMMING
-    # =================================================================
-    if registros_slots:
-        table_id_slots = "peya-chile.user_nicolas_paredes.fillrate_pulse"
-        df_final_slots = pd.DataFrame(registros_slots)
-        df_final_slots = df_final_slots.groupby(
-            ['ciudad', 'starting_point', 'fecha', 'hora', 'ciclo'], 
-            as_index=False
-        )['slots_totales'].sum()
-
-        df_final_slots['starting_point'] = df_final_slots['starting_point'].astype(str).str.strip()
-        df_final_slots = df_final_slots.merge(df_zonas, on='starting_point', how='left')
-
-        df_final_slots['fecha'] = pd.to_datetime(df_final_slots['fecha']).dt.strftime('%Y-%m-%d')
-        df_final_slots['hora'] = df_final_slots['hora'].astype(int)
-        df_final_slots['ciclo'] = df_final_slots['ciclo'].astype(int)
-        df_final_slots['fecha_medicion'] = fecha_medicion_fija
-        df_final_slots['hora_medicion'] = hora_medicion_fija
-
-        columnas_finales_slots = ['ciudad', 'zone_name', 'starting_point', 'fecha', 'hora', 'ciclo', 'slots_totales', 'fecha_medicion', 'hora_medicion']
-        df_final_slots = df_final_slots[[col for col in columnas_finales_slots if col in df_final_slots.columns]]
-
-        try:
-            job_config = bigquery.LoadJobConfig(
-                write_disposition="WRITE_APPEND",
-                schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
-            )
-            job = client.load_table_from_dataframe(df_final_slots, table_id_slots, job_config=job_config)
-            job.result()
-            print(f"[BIGQUERY] Exito: Se subieron {len(df_final_slots)} filas agrupadas a 'fillrate_pulse'.")
-        except Exception as e:
-            print(f"[BIGQUERY] Error subiendo Shift Trimming: {e}")
+            try:
+                job_config = bigquery.LoadJobConfig(
+                    write_disposition="WRITE_APPEND",
+                    schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
+                )
+                job = client.load_table_from_dataframe(df_rev_upload, table_id_rev, job_config=job_config)
+                job.result()
+                print(f"[BIGQUERY] Exito: Se subieron {len(df_rev_upload)} filas agrupadas a 'velocidad_toma_horas'.")
+            except Exception as e:
+                print(f"[BIGQUERY] Error subiendo Review: {e}")
