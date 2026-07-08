@@ -7,7 +7,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
 from interfaz import iniciar_interfaz
-from scrapper_rooster import RoosterScraper
+from scrapper_review import ReviewScraper
+from scrapper_shifts_trimming import ShiftsTrimmingScraper
 from bigquery_uploader import procesar_y_subir_lote
 from prevent_sleep import SleepPreventer
 
@@ -17,8 +18,8 @@ from prevent_sleep import SleepPreventer
 MODO_PRUEBA = False       # True: Se conecta a Chrome en el puerto 9222 y maximiza la ventana
 MODO_HEADLESS = False    # True: Ejecuta Chrome 100% invisible.
 
-def limpiar_y_subir_archivos_en_lote(scraper, num_ciclo_actual, fecha_medicion_fija, hora_medicion_fija):
-    archivos_locales = glob.glob(os.path.join(scraper.download_dir, "*.csv"))
+def limpiar_y_subir_archivos_en_lote(download_dir, num_ciclo_actual, fecha_medicion_fija, hora_medicion_fija):
+    archivos_locales = glob.glob(os.path.join(download_dir, "*.csv"))
     
     if not archivos_locales:
         print("\n[INFO] No hay archivos CSV descargados para subir a BigQuery en este ciclo.")
@@ -90,8 +91,6 @@ def main():
                     print("[INFO] MODO PRUEBA ACTIVADO. Conectando a navegador existente en el puerto 9222...")
                     chrome_options.debugger_address = "127.0.0.1:9222"
                     driver = webdriver.Chrome(options=chrome_options)
-                    
-                    # ACA TRAEMOS Y MAXIMIZAMOS TU VENTANA EXISTENTE
                     driver.maximize_window()
                 else:
                     chrome_options.add_argument("--window-size=1920,1080")
@@ -123,27 +122,29 @@ def main():
                     if not MODO_HEADLESS:
                         driver.minimize_window()
 
-                scraper = RoosterScraper(driver)
+                # Instanciamos los nuevos scrapers
+                scraper_rev = ReviewScraper(driver)
+                scraper_shift = ShiftsTrimmingScraper(driver)
 
-                archivos_viejos = glob.glob(os.path.join(scraper.download_dir, "*.csv"))
+                # Limpieza previa
+                archivos_viejos = glob.glob(os.path.join(scraper_rev.download_dir, "*.csv"))
                 for f in archivos_viejos:
                     try: os.remove(f)
                     except: pass
                 
+                # FLUJO REVIEW (Individual por ciudad)
                 print("\n[INFO] Iniciando procesamiento de REVIEW...")
                 for ciudad in lista_ciudades:
-                    scraper.procesar_ciudad_fechas_review(ciudad, lista_fechas)
+                    scraper_rev.procesar_ciudad_fechas_review(ciudad, lista_fechas)
 
-                # (PAUSADO PARA TESTEO)
-                # print("\n[INFO] Cambiando a modulo SHIFT TRIMMING...")
-                # for ciudad in lista_ciudades:
-                #     scraper.procesar_ciudad_fechas_scheduler(ciudad, lista_fechas)
-
-                limpiar_y_subir_archivos_en_lote(scraper, num_ciclo_actual, fecha_medicion_fija, hora_medicion_fija)
+                # FLUJO SHIFTS (Masivo y consolidado)
+                print("\n[INFO] Iniciando procesamiento de SHIFT TRIMMING (Lote masivo)...")
+                scraper_shift.ejecutar_flujo_scheduler(lista_ciudades, lista_fechas)
+                # PRUEBASSSSSSSSSSSSS
+                limpiar_y_subir_archivos_en_lote(scraper_rev.download_dir, num_ciclo_actual, fecha_medicion_fija, hora_medicion_fija)
 
                 print("[SISTEMA] Tareas del ciclo completadas.")
                 
-                # IMPORTANTISIMO: Solo cerramos el navegador si NO estas en modo prueba
                 if not MODO_PRUEBA:
                     print("[SISTEMA] Cerrando navegador y liberando memoria RAM...")
                     driver.quit()
@@ -175,9 +176,6 @@ def main():
         print("\n[PROCESO TERMINADO] El programa ha finalizado todas sus tareas programadas.")
 
     finally:
-        # =================================================================
-        # FIN DE PREVENCION DE SUSPENSION (Siempre se ejecuta)
-        # =================================================================
         preventer.stop()
 
 if __name__ == "__main__":

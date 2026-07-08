@@ -1,3 +1,15 @@
-2026/07/08-09:16:30.051 2900 Reusing MANIFEST C:\Users\nicolas.paredes\Desktop\nico\vscode\bot_rooster_toma_horas\perfil_chrome_bot\Default\Local Storage\leveldb/MANIFEST-000001
-2026/07/08-09:16:30.057 2900 Recovering log #15
-2026/07/08-09:16:30.063 2900 Reusing old log C:\Users\nicolas.paredes\Desktop\nico\vscode\bot_rooster_toma_horas\perfil_chrome_bot\Default\Local Storage\leveldb/000015.log 
+2026/07/08-14:42:52.049 1a80 Reusing MANIFEST C:\Users\nicolas.paredes\Desktop\nico\vscode\bot_rooster_toma_horas\perfil_chrome_bot\Default\Local Storage\leveldb/MANIFEST-000001
+2026/07/08-14:42:52.056 1a80 Recovering log #15
+2026/07/08-14:42:52.060 1a80 Reusing old log C:\Users\nicolas.paredes\Desktop\nico\vscode\bot_rooster_toma_horas\perfil_chrome_bot\Default\Local Storage\leveldb/000015.log 
+2026/07/08-14:43:52.091 1e00 Level-0 table #19: started
+2026/07/08-14:43:52.107 1e00 Level-0 table #19: 17773 bytes OK
+2026/07/08-14:43:52.110 1e00 Delete type=0 #15
+2026/07/08-14:43:52.112 1e00 Compacting 4@0 + 1@1 files
+2026/07/08-14:43:52.129 1e00 Generated table #20@0: 27 keys, 233346 bytes
+2026/07/08-14:43:52.129 1e00 Compacted 4@0 + 1@1 files => 233346 bytes
+2026/07/08-14:43:52.131 1e00 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/07/08-14:43:52.133 1e00 Delete type=2 #7
+2026/07/08-14:43:52.133 1e00 Delete type=2 #10
+2026/07/08-14:43:52.134 1e00 Delete type=2 #13
+2026/07/08-14:43:52.134 1e00 Delete type=2 #16
+2026/07/08-14:43:52.134 1e00 Delete type=2 #19

@@ -1,0 +1,348 @@
+# -*- coding: utf-8 -*-
+import os
+import time
+import glob 
+import datetime
+from pathlib import Path
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+
+class ReviewScraper:
+    def __init__(self, driver):
+        self.driver = driver
+        self.wait = WebDriverWait(self.driver, 15)
+        self.download_dir = self._configurar_directorio()
+        self.ultima_descarga_review = 0 
+
+    def _configurar_directorio(self):
+        directorio_base = Path(__file__).resolve().parent
+        ruta_descargas = str(directorio_base / "data_plan_escacez")
+        
+        if not os.path.exists(ruta_descargas):
+            os.makedirs(ruta_descargas)
+            print(f"[SISTEMA] Carpeta creada: {ruta_descargas}")
+        else:
+            print(f"[SISTEMA] Carpeta de descargas detectada: {ruta_descargas}")
+
+        self.driver.execute_cdp_cmd("Page.setDownloadBehavior", {
+            "behavior": "allow",
+            "downloadPath": ruta_descargas
+        })
+        print("[SISTEMA] Ruta de descargas configurada exitosamente.")
+        return ruta_descargas
+
+    def _forzar_clic(self, elemento):
+        try:
+            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemento)
+            time.sleep(0.5)
+            elemento.click()
+        except:
+            self.driver.execute_script("""
+                var el = arguments[0];
+                el.scrollIntoView({block: 'center'});
+                el.focus();
+                var evDown = new MouseEvent('mousedown', {bubbles: true, cancelable: true, view: window});
+                var evUp = new MouseEvent('mouseup', {bubbles: true, cancelable: true, view: window});
+                var evClick = new MouseEvent('click', {bubbles: true, cancelable: true, view: window});
+                var evChange = new Event('change', {bubbles: true});
+                
+                el.dispatchEvent(evDown);
+                el.dispatchEvent(evUp);
+                el.dispatchEvent(evClick);
+                el.dispatchEvent(evChange);
+                try { el.click(); } catch(e){}
+            """, elemento)
+
+    def _clic_fuera_calendario(self):
+        try:
+            body = self.driver.find_element(By.TAG_NAME, "body")
+            ActionChains(self.driver).move_to_element_with_offset(body, 5, 5).click().perform()
+        except: pass
+            
+        try: self.driver.execute_script("document.body.click();")
+        except: pass
+            
+        try:
+            self.driver.execute_script("""
+                var el = document.elementFromPoint(10, 10) || document.body;
+                var evClick = new MouseEvent('click', {bubbles: true, cancelable: true, view: window});
+                el.dispatchEvent(evClick);
+            """)
+        except: pass
+            
+        try: ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+        except: pass
+            
+        time.sleep(1.5)
+
+    def _navegar_mes(self, anio_objetivo, mes_objetivo):
+        MESES_ES = {
+            "enero": 1, "febrero": 2, "marzo": 3, "abril": 4,
+            "mayo": 5, "junio": 6, "julio": 7, "agosto": 8,
+            "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+            "january": 1, "february": 2, "march": 3, "april": 4,
+            "may": 5, "june": 6, "july": 7, "august": 8,
+            "september": 9, "october": 10, "november": 11, "december": 12,
+        }
+
+        for _ in range(24):
+            tiempo_limite = time.time() + 10
+            texto = ""
+            
+            while time.time() < tiempo_limite:
+                encabezados = self.driver.find_elements(By.XPATH, "//*[contains(@class, 'DatePickerTopBar-MonthYearSelectorToggle')]")
+                for enc in reversed(encabezados):
+                    try:
+                        t = enc.text.strip() or enc.get_attribute("textContent").strip()
+                        if t:
+                            texto = t.lower()
+                            break
+                    except: pass
+                if texto: break
+                time.sleep(0.5)
+
+            mes_actual = None
+            anio_actual = None
+            for token in texto.split():
+                if token in MESES_ES:
+                    mes_actual = MESES_ES[token]
+                try:
+                    val = int(token)
+                    if 2000 <= val <= 2100:
+                        anio_actual = val
+                except ValueError: pass
+
+            if mes_actual is None or anio_actual is None:
+                raise Exception(f"[CAL] No se pudo interpretar el calendario: '{texto}'")
+
+            if mes_actual == mes_objetivo and anio_actual == anio_objetivo:
+                return
+
+            if (anio_actual, mes_actual) < (anio_objetivo, mes_objetivo):
+                xpath_btn = "//button[contains(@class, 'DatePickerTopBar-MonthNavigationButtonForward')]"
+            else:
+                xpath_btn = "//button[contains(@class, 'DatePickerTopBar-MonthNavigationButtonBackward')]"
+            
+            botones = self.driver.find_elements(By.XPATH, xpath_btn)
+            for btn in reversed(botones):
+                try:
+                    self._forzar_clic(btn)
+                    break
+                except: pass
+            time.sleep(0.5)
+
+        raise Exception(f"[CAL] No se pudo navegar al mes {mes_objetivo}/{anio_objetivo}.")
+
+    def _seleccionar_dia(self, dia, mes, anio):
+        mes_dom = mes - 1
+        xpath_dia = f"//div[contains(@class, 'DatePickerDaySelector-Day') and @data-day='{dia}' and @data-month='{mes_dom}' and @data-year='{anio}']"
+        
+        tiempo_limite = time.time() + 10
+        exito = False
+        
+        while time.time() < tiempo_limite:
+            elementos = self.driver.find_elements(By.XPATH, xpath_dia)
+            for el in reversed(elementos):
+                try:
+                    self._forzar_clic(el)
+                    exito = True
+                    break
+                except: pass
+            
+            if exito: break
+            time.sleep(0.5)
+            
+        if not exito:
+            raise Exception(f"No se pudo hacer clic en el dia {dia}.")
+        time.sleep(0.5)
+
+    def _tomar_fotografia_archivos(self):
+        foto = set()
+        for f in glob.glob(os.path.join(self.download_dir, "*.csv")):
+            try:
+                foto.add((f, os.path.getmtime(f)))
+            except:
+                pass
+        return foto
+
+    def _esperar_y_renombrar(self, prefijo_nuevo, ciudad, archivos_previos, fecha):
+        fecha_str = fecha.replace('.', '_')
+        nuevo_nombre = f"{prefijo_nuevo}-cl-{ciudad}-{fecha_str}.csv"
+        ruta_nueva = os.path.join(self.download_dir, nuevo_nombre)
+
+        tiempo_limite = time.time() + 90 
+
+        while time.time() < tiempo_limite:
+            archivos_actuales = self._tomar_fotografia_archivos()
+            nuevos_archivos = archivos_actuales - archivos_previos
+            
+            descargas_pendientes = glob.glob(os.path.join(self.download_dir, "*.crdownload")) + \
+                                   glob.glob(os.path.join(self.download_dir, "*.tmp"))
+            
+            if nuevos_archivos and not descargas_pendientes:
+                archivos_ordenados = sorted(list(nuevos_archivos), key=lambda x: x[1], reverse=True)
+                ultimo_archivo = archivos_ordenados[0][0]
+                
+                try:
+                    if os.path.exists(ruta_nueva):
+                        os.remove(ruta_nueva)
+                    os.rename(ultimo_archivo, ruta_nueva)
+                    print(f"  [SISTEMA] Archivo etiquetado como: {nuevo_nombre}")
+                    return True
+                except PermissionError:
+                    pass
+                except Exception as e:
+                    print(f"  [SISTEMA] Error al etiquetar archivo: {e}")
+                    return False
+                    
+            time.sleep(0.5)
+            
+        return False
+
+    def seleccionar_ciudad(self, ciudad_destino="Santiago"):
+        print(f"[ROOSTER] Seleccionando ciudad en menu global: {ciudad_destino}...")
+        
+        for intento in range(3):
+            try:
+                caja_dropdown = self.wait.until(
+                    EC.presence_of_element_located((By.XPATH, "//div[@data-testid='HeaderNavigationSelectorRoot']"))
+                )
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", caja_dropdown)
+                time.sleep(0.5)
+                try: caja_dropdown.click()
+                except: self.driver.execute_script("arguments[0].click();", caja_dropdown)
+                time.sleep(1)
+                
+                opcion_ciudad = WebDriverWait(self.driver, 4).until(
+                    EC.presence_of_element_located((By.XPATH, f"//*[text()='{ciudad_destino}']"))
+                )
+                try: opcion_ciudad.click()
+                except: self.driver.execute_script("arguments[0].click();", opcion_ciudad)
+                time.sleep(1)
+                return
+            except Exception as e:
+                print(f"  [ROOSTER] Reintentando abrir menu de ciudad... ({intento+1}/3)")
+                time.sleep(2)
+                
+        raise Exception(f"No se pudo seleccionar la ciudad {ciudad_destino}.")
+
+    def configurar_fechas_review(self, fecha_inicio: str, fecha_fin: str):
+        dia_i, mes_i, anio_i = (int(x) for x in fecha_inicio.split("."))
+        dia_f, mes_f, anio_f = (int(x) for x in fecha_fin.split("."))
+
+        self.driver.execute_script("window.scrollTo(0, 0);")
+        self._clic_fuera_calendario()
+
+        calendario_abierto = False
+        for intento in range(3):
+            try:
+                inputs_fecha = self.driver.find_elements(By.XPATH, "//input[@data-testid='TextInputInput']")
+                for inp in inputs_fecha:
+                    self._forzar_clic(inp)
+                    time.sleep(1.5) 
+            except Exception:
+                pass
+
+            encabezados = self.driver.find_elements(By.XPATH, "//*[contains(@class, 'DatePickerTopBar-MonthYearSelectorToggle')]")
+            for enc in encabezados:
+                t = enc.text.strip() or enc.get_attribute("textContent").strip()
+                if t:
+                    calendario_abierto = True
+                    break
+            
+            if calendario_abierto:
+                break
+            else:
+                print(f"  [ROOSTER] El calendario no se abrio. Reintentando apertura ({intento + 1}/3)...")
+                time.sleep(2) 
+        
+        if not calendario_abierto:
+            raise Exception("[CAL] No se pudo abrir el widget del calendario.")
+
+        self._navegar_mes(anio_i, mes_i)
+        self._seleccionar_dia(dia_i, mes_i, anio_i)
+        if (anio_f, mes_f) != (anio_i, mes_i):
+            self._navegar_mes(anio_f, mes_f)
+        self._seleccionar_dia(dia_f, mes_f, anio_f)
+        
+        self._clic_fuera_calendario()
+
+    def descargar_csv(self):
+        tiempo_actual = time.time()
+        tiempo_transcurrido = tiempo_actual - self.ultima_descarga_review
+        
+        if self.ultima_descarga_review > 0 and tiempo_transcurrido < 62:
+            tiempo_espera = 62 - tiempo_transcurrido
+            print(f"  [ROOSTER] Esperando {int(tiempo_espera)}s restantes del cooldown para la plataforma...")
+            time.sleep(tiempo_espera)
+            
+        time.sleep(3)
+        
+        for intento in range(3):
+            try:
+                boton_exportar = self.wait.until(
+                    EC.presence_of_element_located((By.XPATH, "//button[contains(., 'Exportar a CSV')]"))
+                )
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", boton_exportar)
+                time.sleep(0.5)
+                
+                self.driver.execute_script("arguments[0].click();", boton_exportar)
+                print("  [ROOSTER] Clic de descarga ejecutado.")
+                
+                self.ultima_descarga_review = time.time()
+                return 
+            except Exception as e:
+                if "stale" in str(e).lower() or "not attached" in str(e).lower():
+                    time.sleep(2)
+                else:
+                    raise e
+        raise Exception("No se pudo hacer clic en exportacion.")
+
+    def procesar_ciudad_fechas_review(self, ciudad, lista_fechas):
+        print("\n" + "="*50)
+        print(f"INICIANDO EXTRACCION (REVIEW) - CIUDAD: {ciudad}")
+        print("="*50)
+        
+        try:
+            self.driver.get("https://cl.us.logisticsbackoffice.com/dashboard/rooster/review")
+            time.sleep(4)
+            self.seleccionar_ciudad(ciudad) 
+        except Exception as e:
+            print(f"[ROOSTER] Error inicial al cargar Review para {ciudad}: {e}")
+            return
+            
+        for fecha in lista_fechas:
+            try:
+                print(f"\n[ROOSTER] Preparando extraccion para el {fecha}...")
+                self.configurar_fechas_review(fecha, fecha)
+                
+                for intento in range(3):
+                    self._clic_fuera_calendario()
+                    
+                    try:
+                        archivos_previos = self._tomar_fotografia_archivos()
+                        
+                        self.descargar_csv()
+                        exito = self._esperar_y_renombrar("review", ciudad, archivos_previos, fecha)
+                        
+                        if exito:
+                            print(f"  [ROOSTER] Descarga confirmada para {fecha}.")
+                            break
+                        else:
+                            print(f"  [ROOSTER] Archivo no detectado (Intento {intento + 1}).")
+                    except Exception as e:
+                        print(f"  [ROOSTER] Fallo en intento {intento + 1}: {e}")
+                        time.sleep(1)
+            except Exception as e:
+                print(f"  [ROOSTER] Error critico en la fecha {fecha}: {e}")
+                print("  [ROOSTER] Forzando F5 y saltando a la siguiente fecha...")
+                self.driver.refresh()
+                time.sleep(4)
+                try: self.seleccionar_ciudad(ciudad)
+                except: pass
+        
+        print(f"\n[ROOSTER] Flujo Review completado para {ciudad}.")
