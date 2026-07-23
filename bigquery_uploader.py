@@ -29,11 +29,13 @@ def procesar_y_subir_lote(lista_archivos, numero_ciclo, fecha_medicion_fija, hor
             WHERE country_code='cl'
         """
         df_zonas = client.query(query_zonas).to_dataframe()
-        df_zonas['starting_point'] = df_zonas['starting_point'].astype(str).str.strip()
-        df_zonas = df_zonas.drop_duplicates(subset=['starting_point'])
+        
+        # Guardamos una copia limpia para el cruce insensible a mayúsculas
+        df_zonas['starting_point_clean'] = df_zonas['starting_point'].astype(str).str.lower().str.strip()
+        df_zonas = df_zonas.drop_duplicates(subset=['starting_point_clean'])
     except Exception as e:
-        print(f"[BIGQUERY] Advertencia: Error extrayendo zonas. Se subira sin zone_name.")
-        df_zonas = pd.DataFrame(columns=['zone_name', 'starting_point'])
+        print(f"[BIGQUERY] Advertencia: Error extrayendo zonas. Se subira sin zone_name. Error: {e}")
+        df_zonas = pd.DataFrame(columns=['zone_name', 'starting_point', 'starting_point_clean'])
 
     df_review_list = []
     df_slots_list = []
@@ -202,7 +204,19 @@ def procesar_y_subir_lote(lista_archivos, numero_ciclo, fecha_medicion_fija, hor
         )[['horas_trabajo', 'horas_no_tomadas', 'slots_totales']].sum()
 
         df_agrupado['starting_point'] = df_agrupado['starting_point'].astype(str).str.strip()
-        df_agrupado = df_agrupado.merge(df_zonas, on='starting_point', how='left')
+        
+        # Creamos la misma llave limpia en los datos del bot
+        df_agrupado['starting_point_clean'] = df_agrupado['starting_point'].str.lower().str.strip()
+
+        # Hacemos el merge utilizando la columna limpia para evitar problemas de mayúsculas
+        df_agrupado = df_agrupado.merge(
+            df_zonas[['zone_name', 'starting_point_clean']], 
+            on='starting_point_clean', 
+            how='left'
+        )
+
+        # Limpiamos la columna auxiliar temporal que ya no necesitamos para el reporte
+        df_agrupado.drop(columns=['starting_point_clean'], inplace=True)
 
         df_agrupado['fecha'] = pd.to_datetime(df_agrupado['fecha']).dt.strftime('%Y-%m-%d')
         df_agrupado['hora'] = df_agrupado['hora'].astype(int)
